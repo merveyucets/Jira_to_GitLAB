@@ -3,6 +3,7 @@ import requests
 import json
 from dotenv import load_dotenv
 import time
+import pandas as pd
 
 # .env yükle
 load_dotenv()
@@ -12,6 +13,9 @@ GITLAB_TOKEN = os.getenv("GITLAB_TOKEN")
 MASTER_PROJECT_ID = os.getenv("MASTER_PROJECT_ID")
 JIRA_URL = os.getenv("JIRA_URL")
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
+
+CSV_FOLDER = "csv_folder"
+UPLOADED_FILE = os.path.join(CSV_FOLDER, "jira_uploaded.csv")  
 
 GITLAB_HEADERS = {
     "PRIVATE-TOKEN": GITLAB_TOKEN,
@@ -110,11 +114,17 @@ def smart_transition_to_done(jira_key):
             if final_id:
                 if execute_transition(jira_key, final_id):
                     print("   ✅✅ İŞLEM TAMAM: Başarıyla kapatıldı.")
+                    df = pd.read_csv(UPLOADED_FILE)
+                    row_number = df.index[df["Issue key"] == jira_key][0]
+                    df.loc[row_number, "Status"] = "Çözülmüş"
+                    df.to_csv(UPLOADED_FILE, index=False, encoding="utf-8-sig")
+                    print("f{jira_key} uploaded_file de status=çözülmüş olarak güncellendi." )
+        
                 else:
                     print("   ❌ HATA: 'Done' yapılamadı.")
             else:
                 print("   ❌ HATA: Hedef statüye uygun geçiş bulunamadı. (Yukarıdaki listeyi kontrol et)")
-
+           
 def extract_jira_key_from_labels(labels):
     for label in labels:
         if "-" in label and label.split("-")[0].isupper() and label.split("-")[1].isdigit():
@@ -145,6 +155,11 @@ if __name__ == "__main__":
             
         if current_jira_status in TARGET_STATUS_NAMES:
             print(f"ℹ️  Jira zaten kapalı ({current_jira_status}).")
+            df = pd.read_csv(UPLOADED_FILE)
+            row_number = df.index[df["Issue key"] == jira_key][0]
+            df.loc[row_number, "Status"] = "Çözülmüş"
+            df.to_csv(UPLOADED_FILE, index=False, encoding="utf-8-sig")
+            print("f{jira_key} uploaded_file de status=çözülmüş olarak güncellendi." )
             continue
         
         # Zeki fonksiyonu çağır
