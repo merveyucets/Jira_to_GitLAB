@@ -6,6 +6,7 @@ from dateutil import parser
 from dotenv import load_dotenv
 from jira_auto_export import fetch_jira_csv
 from compare_issues import compare_issues
+import subprocess 
 import sys
 import json
 from urllib.parse import quote
@@ -22,7 +23,7 @@ GROUP_ID = os.getenv("GROUP_ID")  # Yeni: milestone'lar burada açılacak
 JIRA_URL = os.getenv("JIRA_URL")  # Örn: http://10.0.38.254
 JIRA_EMAIL = os.getenv("JIRA_EMAIL")  # Jira kullanıcı adı
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")  # Şifre veya API token
-JQL = "project = GYT AND created >= -3d"
+JQL = "project = GYT AND created >= -30d"
 CSV_FILE = "jira_export_all.csv"
 
 
@@ -305,3 +306,5 @@ if __name__ == "__main__":
             print(f"'{row['Issue key']}' zaten uploaded CSV'de mevcut, tekrar eklenmedi.")
 
     print(f"\n✅ Aktarım tamamlandı. Toplam --{synced_issue_count}-- issue Gitlab'e aktarıldı ve 'Jira Uploaded CSV'ye kaydedildi'\n")    
+
+subprocess.run(["python", "sync_gitlab_status_to_jira.py"])
