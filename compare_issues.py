@@ -11,12 +11,12 @@ def compare_issues():
     # UPLOADED_FILE yoksa oluştur
     if not os.path.exists(UPLOADED_FILE):
         pd.DataFrame(columns=["Issue key"]).to_csv(UPLOADED_FILE, index=False)
-        print(f"'{UPLOADED_FILE}' oluşturuldu (boş).")
+        print(f"🆕 '{UPLOADED_FILE}' oluşturuldu (boş).")
 
     # TO_ADD_FILE yoksa oluştur
     if not os.path.exists(TO_ADD_FILE):
         pd.DataFrame(columns=["Issue key"]).to_csv(TO_ADD_FILE, index=False)
-        print(f"'{TO_ADD_FILE}' oluşturuldu (boş).")
+        print(f"🆕 '{TO_ADD_FILE}' oluşturuldu (boş).")
 
     # CSV dosyalarını oku
     if os.path.exists(LATEST_FILE) and os.path.getsize(LATEST_FILE) > 0:
@@ -37,4 +37,4 @@ def compare_issues():
 
     # TO_ADD_FILE olarak kaydet
     to_add_df.to_csv(TO_ADD_FILE, index=False, encoding="utf-8-sig")
-    print(f"{len(to_add_df)} yeni issue '{TO_ADD_FILE}' dosyasına eklendi.")
+    print(f"✅ İlk kez çekilen {len(to_add_df)} yeni issue 'Jira to Add' dosyasına eklendi.")

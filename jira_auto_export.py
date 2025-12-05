@@ -10,13 +10,13 @@ JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 CSV_FOLDER = "csv_folder"
 LATEST_FILE = os.path.join(CSV_FOLDER, "jira_latest.csv")
 
-def fetch_jira_csv():
+def fetch_jira_csv(gelen_jql):
     start_at = 0
     max_results = 100
     all_issues = []
 
-    JQL = 'project = GYT AND created >=-7d'  # son 7 gün
-    #JQL = 'project = GYT AND issuekey = GYT-126'
+    JQL = gelen_jql
+    print(f"✅ Jira Sorgusu Çalıştırılıyor: {JQL}")
     
     
     headers = {
@@ -89,10 +89,35 @@ def fetch_jira_csv():
      # Klasör yoksa oluştur
     if not os.path.exists(CSV_FOLDER):
         os.makedirs(CSV_FOLDER)
-        print(f"'{CSV_FOLDER}' klasörü oluşturuldu (boş).")       
-        df = pd.DataFrame(all_issues)
-    
-    df = pd.DataFrame(all_issues)
+        print(f"🆕 '{CSV_FOLDER}' klasörü oluşturuldu (boş).")
 
+    file_existed_before_write = os.path.exists(LATEST_FILE) # <--- YENİ SATIR: Dosya var mıydı?
+
+    # Jira'dan gelen tüm kolon adlarının listesi
+    JIRA_COLUMNS = [
+        "Summary", "Issue key", "Issue id", "Issue Type", "Status", "Project key", 
+        "Project name", "Priority", "Assignee", "Reporter", "Description", 
+        "Due Date", "Original Estimate", "Time Spent", "Labels", "İlgili Stajyerler"
+    ]
+    
+    issue_count = len(all_issues)
+    
+    if issue_count > 0:
+        df = pd.DataFrame(all_issues)
+        print(f"✅ Jira'dan sorgu ile eşleşen --{issue_count}-- issue çekildi.")
+    else:
+        # Hata vermemek için boş başlık satırı oluşturulur.
+        df = pd.DataFrame(columns=JIRA_COLUMNS)
+        
     df.to_csv(LATEST_FILE, index=False, encoding="utf-8-sig")
-    print(f"✅ Jira CSV başarıyla güncellendi: {LATEST_FILE}")
+        
+    # --- YENİ ÇIKTI KONTROLÜ ---
+    if not file_existed_before_write :  #and issue_count == 0
+        # 1. Durum: Dosya hiç yoktu VE içi boş yazıldı.
+        print(f"🆕 '{LATEST_FILE}' oluşturuldu (boş).")
+    else:
+        # 2. Durum: Dosya vardı VEYA içi dolu yazıldı (Normal güncelleme).
+        print(f"✅ --{issue_count}-- Issue Latest CSV'ye eklendi.")
+    
+    # ÖNEMLİ: Bulunan issue sayısını geri döndür
+    return issue_count
