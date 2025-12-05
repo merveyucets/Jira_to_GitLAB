@@ -22,7 +22,7 @@ GROUP_ID = os.getenv("GROUP_ID")  # Yeni: milestone'lar burada açılacak
 JIRA_URL = os.getenv("JIRA_URL")  # Örn: http://10.0.38.254
 JIRA_EMAIL = os.getenv("JIRA_EMAIL")  # Jira kullanıcı adı
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")  # Şifre veya API token
-JQL = "project = GYT AND created >= -2d"
+JQL = "project = GYT AND created >= -3d"
 CSV_FILE = "jira_export_all.csv"
 
 
@@ -148,7 +148,7 @@ try:
         headers={"Authorization": f"Bearer {JIRA_API_TOKEN}"}
     )
     if test_response.status_code == 200:
-        print("[JIRA TEST REQUEST] Başarılı ✅")
+        print("\n✅ Jira API Bağlantısı Başarılı.")
     else:
         print(f"[JIRA TEST REQUEST] Uyarı: {test_response.status_code}")
 except Exception as e:
@@ -158,10 +158,25 @@ except Exception as e:
 
 # ------------------- ANA İŞLEMLER -------------------
 if __name__ == "__main__":
-    fetch_jira_csv()
+
+    # 1. Adım: Yeni issue'ları Jira'dan çek ve sayısını al
+    # fetch_jira_csv() fonksiyonu artık JQL parametresini alıyor
+    # ve kaç adet issue bulduğunu geri döndürüyor.
+    new_issue_count = fetch_jira_csv(JQL)
+
+    # 2. Adım: Issue sayısı kontrolü
+    if new_issue_count == 0:
+        print("\n---------------------------------------------------------")
+        print("🛑 YENİ ISSUE BULUNAMADI. Aktarım işlemi durduruluyor.")
+        print("---------------------------------------------------------")
+        sys.exit(0) # Programı güvenli şekilde sonlandır
+
+        
     compare_issues()
     rows = read_jira_csv_robustly(TO_ADD_FILE)  
-    print(f"\nToplam {len(rows)} Jira kaydı okundu.")
+    print(f"\nGitlab'e aktarılacak toplam {len(rows)} issue tespit edildi.")
+
+    synced_issue_count = 0  # ✅ Sayacın burada tanımlandığından emin olun! KAÇ issue aktarıldı?
 
     for i, row in enumerate(rows, start=1):
         title = (row.get("Summary") or "Untitled").strip()
@@ -170,7 +185,7 @@ if __name__ == "__main__":
 
         ilgili_stajyerler = row.get("İlgili Stajyerler", "").split(",")
         ilgili_stajyerler = [s.strip() for s in ilgili_stajyerler if s.strip()]
-        print(f"➡️ Tespit Edilen Takımlar: {', '.join(ilgili_stajyerler) or 'Yok'}")
+        print(f"➡️  Tespit Edilen Takımlar: {', '.join(ilgili_stajyerler) or 'Yok'}")
 
         orig_description = (row.get("Description") or "").strip()
         labels = [lbl for lbl in [jira_key, row.get("Priority")] if lbl]
@@ -229,7 +244,7 @@ if __name__ == "__main__":
         for stajyer in ilgili_stajyerler:
             proj_id = STAJYER_PROJECT_MAP.get(stajyer)
             if not proj_id:
-                print(f"⚠️ Stajyer '{stajyer}' için proje ID'si bulunamadı. Atlanyor.")
+                print(f"   ⚠️  -> '{stajyer}' takmı için proje ID'si bulunamadı. İlgili takıma atanamadı.")
                 continue
 
             child_assignee_id = ASSIGNEE_MAP.get(stajyer)
@@ -269,30 +284,24 @@ if __name__ == "__main__":
                 child_issue = child_resp.json()
                 child_iid = child_issue["iid"]
                 link_issues(int(MASTER_PROJECT_ID), master_iid, proj_id, child_iid)
-                print(f"  -> Child Issue Oluşturuldu: {child_data['title']} ve Ana Issue ile linklendi.")
+                print(f"   ✅ -> Child Issue Oluşturuldu: {child_data['title']} ve Ana Issue ile linklendi.")
             else:
-                print(f"⚠️ Child issue oluşturulamadı (stajyer {stajyer}): {child_resp.status_code} {child_resp.text}")
-            
-            if master_resp.status_code == 201:
-                master_issue = master_resp.json()
-                master_iid = master_issue["iid"]
-                print(f"✅ Ana Issue Oluşturuldu: {row.get('Summary')}")
+                print(f"   ⚠️ Child issue oluşturulamadı (stajyer {stajyer}): {child_resp.status_code} {child_resp.text}")
+        # --- UPLOADED CSV'Yİ GÜNCELLE (Master Issue Oluşturulduysa SADECE BİR KERE ÇALIŞIR) ---
+        if os.path.exists(UPLOADED_FILE) and os.path.getsize(UPLOADED_FILE) > 0:
+            uploaded_df = pd.read_csv(UPLOADED_FILE, encoding="utf-8-sig")
+        else:
+            uploaded_df = pd.DataFrame(columns=row.keys())
 
-                    # --- uploaded CSV'yi güncelle ---
-                if os.path.exists(UPLOADED_FILE) and os.path.getsize(UPLOADED_FILE) > 0:
-                    uploaded_df = pd.read_csv(UPLOADED_FILE, encoding="utf-8-sig")
-                else:
-                    uploaded_df = pd.DataFrame(columns=row.keys())
+        # Eğer aynı Issue key zaten varsa tekrar ekleme
+        if not ((uploaded_df['Issue key'] == row['Issue key']).any()):
+            uploaded_df = pd.concat([uploaded_df, pd.DataFrame([row])], ignore_index=True)
+            uploaded_df.to_csv(UPLOADED_FILE, index=False, encoding="utf-8-sig")
+            print(f"✔️  '{row['Issue key']}' uploaded CSV'ye başarıyla eklendi.")
+            synced_issue_count += 1
+            # Eğer önceki adımda sayacı eklediyseniz, buraya 'synced_issue_count += 1' ekleyebilirsiniz.
+        else:
+            # Bu çıktı sadece beklenmedik bir durumda (döngü hatası, manuel ekleme vb.) görünecektir.
+            print(f"'{row['Issue key']}' zaten uploaded CSV'de mevcut, tekrar eklenmedi.")
 
-                # Eğer aynı Issue key zaten varsa tekrar ekleme
-                if not ((uploaded_df['Issue key'] == row['Issue key']).any()):
-                    uploaded_df = pd.concat([uploaded_df, pd.DataFrame([row])], ignore_index=True)
-                    uploaded_df.to_csv(UPLOADED_FILE, index=False, encoding="utf-8-sig")
-                    print(f"'{row['Issue key']}' uploaded CSV'ye eklendi.")
-                else:
-                    print(f"'{row['Issue key']}' zaten uploaded CSV'de mevcut, tekrar eklenmedi.")
-
-
-    print("\n✅ Aktarım tamamlandı. Tüm takımlar için issue'lar oluşturuldu ve grup milestone'una eklendi.\n")
-
-    
+    print(f"\n✅ Aktarım tamamlandı. Toplam --{synced_issue_count}-- issue Gitlab'e aktarıldı ve 'Jira Uploaded CSV'ye kaydedildi'\n")    
