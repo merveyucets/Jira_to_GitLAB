@@ -15,46 +15,77 @@ load_dotenv()
 # --- .ENV DEĞİŞKENLERİ ---
 GITLAB_TOKEN = os.getenv("GITLAB_TOKEN")
 MASTER_PROJECT_ID = os.getenv("MASTER_PROJECT_ID")
-TEAM_PROJECT_MAP = json.loads(os.getenv("TEAM_PROJECT_MAP", "{}"))
 GROUP_ID = os.getenv("GROUP_ID")
 JIRA_URL = os.getenv("JIRA_URL")
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 
-# --- ARGÜMAN YÖNETİMİ ---
-JQL = "project = GYT AND created >= -15d"
-MODE = "--preview"
+# --- KONFİGÜRASYON VE MAP DEĞİŞKENLERİ ---
+CONFIG_FILE = "config.json"
 
+# Bu değişkenler load_config() ile doldurulacak
+ASSIGNEE_MAP = {}         # { "jira_user": gitlab_user_id }
+TEAM_PROJECT_MAP = {}     # { "jira_team_name": gitlab_project_id }
+TEAM_NAME_MAP = {}        # { "jira_team_name": "Görünür İsim" }
+
+JQL = "project = GYT AND created >= -15d" # Varsayılan
+
+def load_config():
+    """config.json dosyasını okur ve MAP değişkenlerini doldurur (Ayrıştırılmış Yapı)."""
+    global ASSIGNEE_MAP, TEAM_PROJECT_MAP, TEAM_NAME_MAP, JQL
+    
+    if not os.path.exists(CONFIG_FILE):
+        print(f"⚠️ UYARI: {CONFIG_FILE} bulunamadı! Varsayılan ayarlar kullanılacak.")
+        return
+
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        # 1. JQL Ayarını Çek
+        if "settings" in data and "default_jql" in data["settings"]:
+            if len(sys.argv) <= 1: 
+                JQL = data["settings"]["default_jql"]
+                print(f"⚙️ Config dosyasından JQL yüklendi: {JQL}")
+
+        # 2. User Mappings (Kişi Eşleşmeleri)
+        if "user_mappings" in data:
+            for item in data["user_mappings"]:
+                j_user = item.get("jira_user")
+                g_user_id = item.get("gitlab_user_id")
+                
+                if j_user and g_user_id:
+                    ASSIGNEE_MAP[j_user] = g_user_id
+
+        # 3. Team Mappings (Takım Eşleşmeleri)
+        if "team_mappings" in data:
+            for item in data["team_mappings"]:
+                j_team = item.get("jira_team_name")
+                g_proj_id = item.get("gitlab_project_id")
+                f_name = item.get("friendly_name")
+
+                if j_team:
+                    if g_proj_id: TEAM_PROJECT_MAP[j_team] = g_proj_id
+                    if f_name: TEAM_NAME_MAP[j_team] = f_name
+            
+        print("✅ Ayarlar ve veriler config dosyasından başarıyla yüklendi.")
+
+    except Exception as e:
+        print(f"❌ Config yükleme hatası: {e}")
+
+# --- YÜKLEMEYİ BAŞLAT ---
+load_config()
+
+# --- ARGÜMAN YÖNETİMİ ---
 if len(sys.argv) > 1:
     JQL = sys.argv[1]
-    
+
+MODE = "--preview"
 if len(sys.argv) > 2:
     MODE = sys.argv[2]
 
 HEADERS = {
     "PRIVATE-TOKEN": GITLAB_TOKEN,
     "Content-Type": "application/json"
-}
-
-# --- Assignee Map ---
-ASSIGNEE_MAP = {
-    "merve.yucetas": 31250282,
-    "affan.bugra.ozaytas": 31073378,
-    "burak.kiraz": 31073379,
-}
-
-# --- Stajyer Map (Kullanıcı -> Proje ID) ---
-STAJYER_PROJECT_MAP = {
-    "affan.bugra.ozaytas": TEAM_PROJECT_MAP.get("GYT Test ve Otomasyon"),
-    "merve.yucetas": TEAM_PROJECT_MAP.get("GYT Proje Yönetimi"),
-    "burak.kiraz": TEAM_PROJECT_MAP.get("GYT Simülasyon")
-}
-
-# --- YENİ: Ters Harita (Kullanıcı -> Takım İsmi) ---
-# Ekrana güzel yazdırmak için kullanacağız.
-STAJYER_NAME_MAP = {
-    "affan.bugra.ozaytas": "GYT Test ve Otomasyon",
-    "merve.yucetas": "GYT Proje Yönetimi",
-    "burak.kiraz": "GYT Simülasyon"
 }
 
 # CSV DOSYA YOLLARI
@@ -69,6 +100,7 @@ def read_jira_csv_robustly(filename):
         with open(filename, encoding="utf-8-sig") as f:
             reader = csv.reader(f)
             header = [h.strip() for h in next(reader)]
+            # Jira'da takım bilgisi şu an "İlgili Stajyerler" alanından geliyor
             stajyer_indices = [i for i, col_name in enumerate(header) if "İlgili Stajyerler" in col_name]
 
             for row_data in reader:
@@ -83,7 +115,8 @@ def read_jira_csv_robustly(filename):
                 for h, v in zip(header, row_data):
                     issue[h.strip()] = v.strip()
                 
-                issue["_stajyer_list"] = list(set(stajyer_list_raw))
+                # Burada _stajyer_list aslında mantıksal olarak "Takım Listesi"dir.
+                issue["_team_list"] = list(set(stajyer_list_raw))
                 issues.append(issue)
                 
     except FileNotFoundError:
@@ -131,13 +164,11 @@ def find_or_create_group_milestone(title):
         return r.json()
     return None
 
-def get_readable_team_names(stajyer_list):
-    """Kullanıcı adlarını Takım İsimlerine çevirir."""
+def get_readable_team_names(team_list):
+    """Takım kodlarını (şimdilik kullanıcı adı) Okunabilir Takım İsimlerine çevirir."""
     readable_list = []
-    for s in stajyer_list:
-        # Haritada varsa takım ismini al, yoksa olduğu gibi kullanıcı adını yaz
-        team_name = STAJYER_NAME_MAP.get(s, s)
-        readable_list.append(team_name)
+    for t in team_list:
+        readable_list.append(TEAM_NAME_MAP.get(t, t))
     return readable_list
 
 # ==============================================================================
@@ -180,10 +211,9 @@ if __name__ == "__main__":
         for i, row in enumerate(rows, start=1):
             jira_key = row.get("Issue key", "")
             summary = row.get("Summary", "")
-            stajyerler = row.get("_stajyer_list", [])
+            teams = row.get("_team_list", []) # Artık _team_list kullanıyoruz
             
-            # --- YENİ: Takım İsimlerini Dönüştür ---
-            takim_isimleri = get_readable_team_names(stajyerler)
+            takim_isimleri = get_readable_team_names(teams)
             
             print(f"--- {i}/{count}: {jira_key} - {summary} ---")
             print(f"➡️  Tespit Edilen Takımlar: {', '.join(takim_isimleri) if takim_isimleri else 'Yok'}\n")
@@ -213,10 +243,9 @@ if __name__ == "__main__":
             
             print(f"\n--- {i}/{count}: İşleniyor {jira_key} - {title} ---")
             
-            stajyerler = row.get("_stajyer_list", [])
+            teams = row.get("_team_list", [])
             
-            # --- YENİ: Takım İsimlerini Dönüştür ---
-            takim_isimleri = get_readable_team_names(stajyerler)
+            takim_isimleri = get_readable_team_names(teams)
             print(f"➡️  Tespit Edilen Takımlar: {', '.join(takim_isimleri) if takim_isimleri else 'Yok'}")
             
             # --- VERİ HAZIRLIĞI ---
@@ -240,7 +269,9 @@ if __name__ == "__main__":
             milestone = find_or_create_group_milestone(title)
             
             # --- 2. Master Issue ---
+            # Assignee mapping, artık sadece USER MAP üzerinden yapılır
             assignee_id = ASSIGNEE_MAP.get(row.get("Assignee"))
+            
             master_data = {
                 "title": title, "description": full_desc, "labels": labels_str,
                 "time_estimate": orig_est, "spent_time": time_spent
@@ -260,13 +291,20 @@ if __name__ == "__main__":
                 continue 
             
             # --- 3. Child Issues ---
-            for stajyer in stajyerler:
-                proj_id = STAJYER_PROJECT_MAP.get(stajyer)
+            for team in teams:
+                # Proje ID'si artık TEAM MAP üzerinden alınıyor
+                proj_id = TEAM_PROJECT_MAP.get(team)
+                
                 if not proj_id:
-                    print(f"  ⚠️  -> '{stajyer}' için Proje ID bulunamadı.")
+                    print(f"  ⚠️  -> '{team}' takımı için Proje ID bulunamadı.")
                     continue
                 
-                c_assignee = ASSIGNEE_MAP.get(stajyer)
+                # Child Assignee mantığı:
+                # Şu anki geçici sistemde takım adı = kişi adı olduğu için, ASSIGNEE_MAP'ten de bakabiliriz.
+                # İleride gerçek takım adları gelince, Child issue'ya kim atanacak?
+                # Şimdilik takım adı ile aynı isimde bir kullanıcı varsa onu atayalım (Eski mantıkla uyumlu)
+                c_assignee = ASSIGNEE_MAP.get(team) 
+                
                 c_desc = f"**Ana Issue:** {m_issue['web_url']}\n\n{full_desc}"
                 
                 try: p_name = requests.get(f"https://gitlab.com/api/v4/projects/{proj_id}", headers=HEADERS).json().get("name", "Team")
@@ -285,7 +323,6 @@ if __name__ == "__main__":
                 if c_resp.status_code == 201:
                     c_iid = c_resp.json()["iid"]
                     link_issues(int(MASTER_PROJECT_ID), m_iid, proj_id, c_iid)
-                    # Buradaki print'i de güzelleştirelim (Proje adı zaten var ama olsun)
                     print(f"  ✅ -> Child Issue Oluşturuldu ({p_name}) ve linklendi.")
                 else:
                     print(f"  ⚠️ Child Issue hatası: {c_resp.status_code}")
