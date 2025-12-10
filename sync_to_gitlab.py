@@ -6,11 +6,8 @@ from dateutil import parser
 from dotenv import load_dotenv
 from jira_auto_export import fetch_jira_csv
 from compare_issues import compare_issues
-import subprocess 
 import sys
 import json
-from urllib.parse import quote
-from requests.auth import HTTPBasicAuth
 
 # .env dosyasını yükle
 load_dotenv()
@@ -19,56 +16,52 @@ load_dotenv()
 GITLAB_TOKEN = os.getenv("GITLAB_TOKEN")
 MASTER_PROJECT_ID = os.getenv("MASTER_PROJECT_ID")
 TEAM_PROJECT_MAP = json.loads(os.getenv("TEAM_PROJECT_MAP", "{}"))
-GROUP_ID = os.getenv("GROUP_ID")  # Yeni: milestone'lar burada açılacak
-JIRA_URL = os.getenv("JIRA_URL")  # Örn: http://10.0.38.254
-JIRA_EMAIL = os.getenv("JIRA_EMAIL")  # Jira kullanıcı adı
-JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")  # Şifre veya API token
+GROUP_ID = os.getenv("GROUP_ID")
+JIRA_URL = os.getenv("JIRA_URL")
+JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 
+# --- ARGÜMAN YÖNETİMİ ---
+JQL = "project = GYT AND created >= -15d"
+MODE = "--preview"
 
-#JQL = "project = GYT AND created >= -15d"
-#CSV_FILE = "jira_export_all.csv"
-
-# --- JQL AYARI (ARAYÜZ DESTEKLİ) ---
-# Eğer program çalıştırılırken dışarıdan parametre gelirse (sys.argv), JQL onu kullanır.
 if len(sys.argv) > 1:
     JQL = sys.argv[1]
-    print(f"📡 Arayüzden Gelen JQL Kullanılıyor: {JQL}")
-else:
-    # Arayüzden bir şey gelmezse varsayılan budur
-    JQL = "project = GYT AND created >= -15d"
-
-CSV_FILE = "jira_export_all.csv"
-
-
+    
+if len(sys.argv) > 2:
+    MODE = sys.argv[2]
 
 HEADERS = {
     "PRIVATE-TOKEN": GITLAB_TOKEN,
     "Content-Type": "application/json"
 }
 
-# --- Jira'da Assignee yapılan birini Gitlab'de de atamak için
+# --- Assignee Map ---
 ASSIGNEE_MAP = {
     "merve.yucetas": 31250282,
     "affan.bugra.ozaytas": 31073378,
     "burak.kiraz": 31073379,
 }
 
-# --- İlgili takımları projeler ile eşleştirmek için. Şimdilik ilgili stajyereler paremetresi kullanılıyor.
+# --- Stajyer Map (Kullanıcı -> Proje ID) ---
 STAJYER_PROJECT_MAP = {
     "affan.bugra.ozaytas": TEAM_PROJECT_MAP.get("GYT Test ve Otomasyon"),
     "merve.yucetas": TEAM_PROJECT_MAP.get("GYT Proje Yönetimi"),
     "burak.kiraz": TEAM_PROJECT_MAP.get("GYT Simülasyon")
 }
 
-# ------------------- CSV DOSYA İSİMLERİ -------------------
+# --- YENİ: Ters Harita (Kullanıcı -> Takım İsmi) ---
+# Ekrana güzel yazdırmak için kullanacağız.
+STAJYER_NAME_MAP = {
+    "affan.bugra.ozaytas": "GYT Test ve Otomasyon",
+    "merve.yucetas": "GYT Proje Yönetimi",
+    "burak.kiraz": "GYT Simülasyon"
+}
 
+# CSV DOSYA YOLLARI
 CSV_FOLDER = "csv_folder"
 TO_ADD_FILE = os.path.join(CSV_FOLDER, "jira_to_add.csv")
 UPLOADED_FILE = os.path.join(CSV_FOLDER, "jira_uploaded.csv")
-LATEST_FILE = os.path.join(CSV_FOLDER, "jira_latest.csv")
 
-
-  
 # ------------------- ROBUST CSV OKUYUCU -------------------
 def read_jira_csv_robustly(filename):
     issues = []
@@ -86,9 +79,13 @@ def read_jira_csv_robustly(filename):
                         val = row_data[idx].strip()
                         if val:
                             stajyer_list_raw.extend([s.strip() for s in val.split(",") if s.strip()])
+                
                 for h, v in zip(header, row_data):
                     issue[h.strip()] = v.strip()
+                
+                issue["_stajyer_list"] = list(set(stajyer_list_raw))
                 issues.append(issue)
+                
     except FileNotFoundError:
         print(f"❌ Hata: '{filename}' dosyası bulunamadı.")
         sys.exit(1)
@@ -97,228 +94,212 @@ def read_jira_csv_robustly(filename):
         sys.exit(1)
     return issues
 
-# ------------------- TEMİZLİK VE YARDIMCI FONKSİYONLAR -------------------
+# ------------------- YARDIMCI FONKSİYONLAR -------------------
 def parse_date(date_str):
-    if not date_str:
-        return None
-    try:
-        return parser.parse(date_str).strftime("%Y-%m-%d")
-    except Exception:
-        return None
+    if not date_str: return None
+    try: return parser.parse(date_str).strftime("%Y-%m-%d")
+    except: return None
 
 def seconds_to_gitlab_duration(seconds):
-    if seconds is None or seconds == "":
-        return None
-    try:
-        sec = int(float(seconds))
-    except Exception:
-        return None
-    if sec <= 0:
-        return None
+    if not seconds: return None
+    try: sec = int(float(seconds))
+    except: return None
+    if sec <= 0: return None
     hours = sec // 3600
     minutes = (sec % 3600) // 60
     parts = []
-    if hours > 0:
-        parts.append(f"{hours}h")
-    if minutes > 0:
-        parts.append(f"{minutes}m")
+    if hours > 0: parts.append(f"{hours}h")
+    if minutes > 0: parts.append(f"{minutes}m")
     return " ".join(parts) if parts else "0m"
 
 def link_issues(parent_project_id, parent_iid, target_project_id, target_iid):
     url = f"https://gitlab.com/api/v4/projects/{parent_project_id}/issues/{parent_iid}/links"
-    data = {
-        "target_project_id": target_project_id,
-        "target_issue_iid": target_iid,
-        "link_type": "relates_to"
-    }
-    r = requests.post(url, headers=HEADERS, json=data)
-    if r.status_code not in (200, 201, 409):
-        print(f"⚠️ Link hatası ({r.status_code}): {r.text}")
+    data = {"target_project_id": target_project_id, "target_issue_iid": target_iid, "link_type": "relates_to"}
+    requests.post(url, headers=HEADERS, json=data)
 
 def find_or_create_group_milestone(title):
     url = f"https://gitlab.com/api/v4/groups/{GROUP_ID}/milestones"
-    
-    # Var mı kontrol et
     r = requests.get(url, headers=HEADERS)
     if r.status_code == 200:
         for m in r.json():
             if m["title"].strip().lower() == title.strip().lower():
                 return m
-
-    # Yoksa oluştur
     payload = {"title": title}
     r = requests.post(url, headers=HEADERS, json=payload)
     if r.status_code == 201:
-        print(f"✨ Issue Milestone'u oluşturuldu: {row.get('Summary')}")
+        print(f"✨ Issue Milestone'u oluşturuldu: {title}")
         return r.json()
-    else:
-        print(f"⚠️ Group Milestone oluşturulamadı: {r.status_code} {r.text}")
-        return None
-# ------------------- Stajyer alanlarını test etmek için -------------------
-# --- JIRA TEST REQUEST (hata yutmalı) ---
-try:
-    test_url = f"{JIRA_URL}/rest/api/2/issue/GYT-126"
-    test_response = requests.get(
-        test_url,
-        headers={"Authorization": f"Bearer {JIRA_API_TOKEN}"}
-    )
-    if test_response.status_code == 200:
-        print("\n✅ Jira API Bağlantısı Başarılı.")
-    else:
-        print(f"[JIRA TEST REQUEST] Uyarı: {test_response.status_code}")
-except Exception as e:
-    print(f"[JIRA TEST REQUEST] Hata yutuldu: {e}")
+    return None
 
+def get_readable_team_names(stajyer_list):
+    """Kullanıcı adlarını Takım İsimlerine çevirir."""
+    readable_list = []
+    for s in stajyer_list:
+        # Haritada varsa takım ismini al, yoksa olduğu gibi kullanıcı adını yaz
+        team_name = STAJYER_NAME_MAP.get(s, s)
+        readable_list.append(team_name)
+    return readable_list
 
-
-# ------------------- ANA İŞLEMLER -------------------
+# ==============================================================================
+#                             ANA BLOK
+# ==============================================================================
 if __name__ == "__main__":
-
-    # 1. Adım: Yeni issue'ları Jira'dan çek ve sayısını al
-    # fetch_jira_csv() fonksiyonu artık JQL parametresini alıyor
-    # ve kaç adet issue bulduğunu geri döndürüyor.
-    new_issue_count = fetch_jira_csv(JQL)
-
-    # 2. Adım: Issue sayısı kontrolü
-    if new_issue_count == 0:
-        print("\n---------------------------------------------------------")
-        print("🛑 YENİ ISSUE BULUNAMADI. Aktarım işlemi durduruluyor.")
-        print("---------------------------------------------------------")
-        sys.exit(0) # Programı güvenli şekilde sonlandır
-
+    
+    # ------------------ MOD 1: PREVIEW (ÖN İZLEME) ------------------
+    if MODE == "--preview":
+        print(f"📡 Arayüzden Gelen JQL Kullanılıyor: {JQL}")
         
-    compare_issues()
-    rows = read_jira_csv_robustly(TO_ADD_FILE)  
-    print(f"\nGitlab'e aktarılacak toplam {len(rows)} issue tespit edildi.")
+        try:
+            test_resp = requests.get(f"{JIRA_URL}/rest/api/2/myself", headers={"Authorization": f"Bearer {JIRA_API_TOKEN}"})
+            if test_resp.status_code == 200: print("✅ Jira API Bağlantısı Başarılı.")
+        except: pass
 
-    synced_issue_count = 0  # ✅ Sayacın burada tanımlandığından emin olun! KAÇ issue aktarıldı?
+        new_issue_count = fetch_jira_csv(JQL)
+        
+        if new_issue_count == 0:
+            print("\n---------------------------------------------------------")
+            print("🛑 Sorgu sonucunda JIRA'dan hiç veri dönmedi veya hata oluştu.")
+            print("---------------------------------------------------------")
+            sys.exit(0)
 
-    for i, row in enumerate(rows, start=1):
-        title = (row.get("Summary") or "Untitled").strip()
-        jira_key = row.get("Issue key") or ""
-        print(f"\n--- {i}/{len(rows)}: İşleniyor {jira_key} - {title} --- \n")
+        compare_issues()
+        
+        if not os.path.exists(TO_ADD_FILE):
+             print("⚠️ Eklenecek dosya bulunamadı.")
+             sys.exit(0)
 
-        ilgili_stajyerler = row.get("İlgili Stajyerler", "").split(",")
-        ilgili_stajyerler = [s.strip() for s in ilgili_stajyerler if s.strip()]
-        print(f"➡️  Tespit Edilen Takımlar: {', '.join(ilgili_stajyerler) or 'Yok'}")
+        rows = read_jira_csv_robustly(TO_ADD_FILE)
+        count = len(rows)
+        
+        if count == 0:
+            print("\n✅ Tüm issue'lar zaten güncel. Yeni aktarılacak kayıt yok.")
+            sys.exit(0)
 
-        orig_description = (row.get("Description") or "").strip()
-        labels = [lbl for lbl in [jira_key, row.get("Priority")] if lbl]
-        due_date = parse_date(row.get("Due Date"))
-        original_estimate = seconds_to_gitlab_duration(row.get("Original Estimate"))
-        time_spent = seconds_to_gitlab_duration(row.get("Time Spent"))
+        print(f"\nGitlab'e aktarılacak toplam {count} issue tespit edildi.\n")
+        
+        for i, row in enumerate(rows, start=1):
+            jira_key = row.get("Issue key", "")
+            summary = row.get("Summary", "")
+            stajyerler = row.get("_stajyer_list", [])
+            
+            # --- YENİ: Takım İsimlerini Dönüştür ---
+            takim_isimleri = get_readable_team_names(stajyerler)
+            
+            print(f"--- {i}/{count}: {jira_key} - {summary} ---")
+            print(f"➡️  Tespit Edilen Takımlar: {', '.join(takim_isimleri) if takim_isimleri else 'Yok'}\n")
+            
+        print("✅ ÖN İZLEME TAMAMLANDI. Devam etmek için 'AKTARIMI ONAYLA' butonuna basın.")
 
-        time_summary = (
-            f"**Jira Bilgileri**\n"
-            f"- Orijinal Jira Key: {jira_key}\n\n"
-            f"**Zaman Takibi**\n"
-            f"- Orijinal Tahmin: {original_estimate or 'N/A'}\n"
-            f"- Harcanan Zaman: {time_spent or 'N/A'}\n\n"
-            f"**Tarihler:**\n"
-            f"- Bitiş Tarihi: {due_date or 'N/A'}\n\n"
-        )
-        description = time_summary + "--- Orijinal Açıklama ---\n\n" + orig_description
+    # ------------------ MOD 2: EXECUTE (GERÇEKLEŞTİRME) ------------------
+    elif MODE == "--execute":
+        
+        if not os.path.exists(TO_ADD_FILE):
+             print("❌ HATA: Önce sorgulama yapmalısınız (jira_to_add.csv yok).")
+             sys.exit(1)
+             
+        rows = read_jira_csv_robustly(TO_ADD_FILE)
+        count = len(rows)
+        
+        if count == 0:
+            print("⚠️ Aktarılacak issue bulunamadı.")
+            sys.exit(0)
 
-        if row.get("Labels"):
-            labels += [x.strip() for x in row["Labels"].split(",") if x.strip()]
-        labels_str = ",".join(labels)
+        print(f"🚀 Aktarım Başlıyor... Toplam {count} kayıt işlenecek.\n")
+        synced_count = 0
 
-        # 🏷️ Group Milestone (Summary bazlı, tüm projelerde ortak)
-        milestone = find_or_create_group_milestone(title)
-
-        # --- Master Issue Oluşturma ---
-        assignee_jira = row.get("Assignee")
-        master_assignee_id = ASSIGNEE_MAP.get(assignee_jira)
-
-        master_data = {
-            "title": title,
-            "description": description,
-            "labels": labels_str,
-            "time_estimate": original_estimate,
-            "spent_time": time_spent,
-        }
-        if due_date:
-            master_data["due_date"] = due_date
-        if master_assignee_id:
-            master_data["assignee_ids"] = [master_assignee_id]
-        if milestone:
-            master_data["milestone_id"] = milestone["id"]
-
-        master_url = f"https://gitlab.com/api/v4/projects/{MASTER_PROJECT_ID}/issues"
-        master_resp = requests.post(master_url, headers=HEADERS, json=master_data)
-
-        if master_resp.status_code == 201:
-            master_issue = master_resp.json()
-            master_iid = master_issue["iid"]
-            print(f"✅ Ana Issue Oluşturuldu: {row.get('Summary')}")
-        else:
-            print(f"⚠️ Master issue oluşturulamadı ({jira_key}): {master_resp.status_code} {master_resp.text}")
-            continue
-
-        # --- Child Issue'ları Oluşturma ve Linkleme ---
-        for stajyer in ilgili_stajyerler:
-            proj_id = STAJYER_PROJECT_MAP.get(stajyer)
-            if not proj_id:
-                print(f"   ⚠️  -> '{stajyer}' takmı için proje ID'si bulunamadı. İlgili takıma atanamadı.")
-                continue
-
-            child_assignee_id = ASSIGNEE_MAP.get(stajyer)
-            child_description = (
-                f"**Ana Issue:** Project {MASTER_PROJECT_ID}, IID {master_iid} ({master_issue['web_url']})\n\n"
-                f"--- Orijinal Açıklama ---\n\n{orig_description}"
+        for i, row in enumerate(rows, start=1):
+            title = (row.get("Summary") or "Untitled").strip()
+            jira_key = row.get("Issue key") or ""
+            
+            print(f"\n--- {i}/{count}: İşleniyor {jira_key} - {title} ---")
+            
+            stajyerler = row.get("_stajyer_list", [])
+            
+            # --- YENİ: Takım İsimlerini Dönüştür ---
+            takim_isimleri = get_readable_team_names(stajyerler)
+            print(f"➡️  Tespit Edilen Takımlar: {', '.join(takim_isimleri) if takim_isimleri else 'Yok'}")
+            
+            # --- VERİ HAZIRLIĞI ---
+            orig_desc = (row.get("Description") or "").strip()
+            labels = [l for l in [jira_key, row.get("Priority")] if l]
+            if row.get("Labels"): labels += [x.strip() for x in row["Labels"].split(",") if x.strip()]
+            labels_str = ",".join(labels)
+            
+            due_date = parse_date(row.get("Due Date"))
+            orig_est = seconds_to_gitlab_duration(row.get("Original Estimate"))
+            time_spent = seconds_to_gitlab_duration(row.get("Time Spent"))
+            
+            desc_prefix = (
+                f"**Jira Bilgileri**\n- Key: {jira_key}\n"
+                f"**Zaman:**\n- Tahmin: {orig_est or 'N/A'}\n- Harcanan: {time_spent or 'N/A'}\n"
+                f"**Bitiş:** {due_date or 'N/A'}\n\n--- Orijinal Açıklama ---\n\n"
             )
+            full_desc = desc_prefix + orig_desc
 
-
-            # Child issue başlığı için proje adını API'den al
-            proj_info_url = f"https://gitlab.com/api/v4/projects/{proj_id}"
-            proj_info_resp = requests.get(proj_info_url, headers=HEADERS)
-            if proj_info_resp.status_code == 200:
-                proj_name = proj_info_resp.json().get("name", "Unknown Project")
-            else:
-                proj_name = "Unknown Project"
-
-
-            child_data = {
-                "title": f"{title} ({proj_name})",
-                "description": child_description,
-                "labels": labels_str,
-                "time_estimate": original_estimate,
-                "spent_time": time_spent
+            # --- 1. Milestone ---
+            milestone = find_or_create_group_milestone(title)
+            
+            # --- 2. Master Issue ---
+            assignee_id = ASSIGNEE_MAP.get(row.get("Assignee"))
+            master_data = {
+                "title": title, "description": full_desc, "labels": labels_str,
+                "time_estimate": orig_est, "spent_time": time_spent
             }
-            if due_date:
-                child_data["due_date"] = due_date
-            if child_assignee_id:
-                child_data["assignee_ids"] = [child_assignee_id]
-            if milestone:
-                child_data["milestone_id"] = milestone["id"]
-
-            child_url = f"https://gitlab.com/api/v4/projects/{proj_id}/issues"
-            child_resp = requests.post(child_url, headers=HEADERS, json=child_data)
-
-            if child_resp.status_code == 201:
-                child_issue = child_resp.json()
-                child_iid = child_issue["iid"]
-                link_issues(int(MASTER_PROJECT_ID), master_iid, proj_id, child_iid)
-                print(f"   ✅ -> Child Issue Oluşturuldu: {child_data['title']} ve Ana Issue ile linklendi.")
+            if due_date: master_data["due_date"] = due_date
+            if assignee_id: master_data["assignee_ids"] = [assignee_id]
+            if milestone: master_data["milestone_id"] = milestone["id"]
+            
+            m_resp = requests.post(f"https://gitlab.com/api/v4/projects/{MASTER_PROJECT_ID}/issues", headers=HEADERS, json=master_data)
+            
+            if m_resp.status_code == 201:
+                m_issue = m_resp.json()
+                m_iid = m_issue["iid"]
+                print(f"✅ Ana Issue Oluşturuldu: {title}")
             else:
-                print(f"   ⚠️ Child issue oluşturulamadı (stajyer {stajyer}): {child_resp.status_code} {child_resp.text}")
-        # --- UPLOADED CSV'Yİ GÜNCELLE (Master Issue Oluşturulduysa SADECE BİR KERE ÇALIŞIR) ---
-        if os.path.exists(UPLOADED_FILE) and os.path.getsize(UPLOADED_FILE) > 0:
-            uploaded_df = pd.read_csv(UPLOADED_FILE, encoding="utf-8-sig")
-        else:
-            uploaded_df = pd.DataFrame(columns=row.keys())
+                print(f"❌ Master issue oluşturulamadı: {m_resp.text}")
+                continue 
+            
+            # --- 3. Child Issues ---
+            for stajyer in stajyerler:
+                proj_id = STAJYER_PROJECT_MAP.get(stajyer)
+                if not proj_id:
+                    print(f"  ⚠️  -> '{stajyer}' için Proje ID bulunamadı.")
+                    continue
+                
+                c_assignee = ASSIGNEE_MAP.get(stajyer)
+                c_desc = f"**Ana Issue:** {m_issue['web_url']}\n\n{full_desc}"
+                
+                try: p_name = requests.get(f"https://gitlab.com/api/v4/projects/{proj_id}", headers=HEADERS).json().get("name", "Team")
+                except: p_name = "Team"
 
-        # Eğer aynı Issue key zaten varsa tekrar ekleme
-        if not ((uploaded_df['Issue key'] == row['Issue key']).any()):
-            uploaded_df = pd.concat([uploaded_df, pd.DataFrame([row])], ignore_index=True)
-            uploaded_df.to_csv(UPLOADED_FILE, index=False, encoding="utf-8-sig")
-            print(f"✔️  '{row['Issue key']}' uploaded CSV'ye başarıyla eklendi.")
-            synced_issue_count += 1
-            # Eğer önceki adımda sayacı eklediyseniz, buraya 'synced_issue_count += 1' ekleyebilirsiniz.
-        else:
-            # Bu çıktı sadece beklenmedik bir durumda (döngü hatası, manuel ekleme vb.) görünecektir.
-            print(f"'{row['Issue key']}' zaten uploaded CSV'de mevcut, tekrar eklenmedi.")
+                c_data = {
+                    "title": f"{title} ({p_name})", "description": c_desc, "labels": labels_str,
+                    "time_estimate": orig_est, "spent_time": time_spent
+                }
+                if due_date: c_data["due_date"] = due_date
+                if c_assignee: c_data["assignee_ids"] = [c_assignee]
+                if milestone: c_data["milestone_id"] = milestone["id"]
 
-    print(f"\n✅ Aktarım tamamlandı. Toplam --{synced_issue_count}-- issue Gitlab'e aktarıldı ve 'Jira Uploaded CSV'ye kaydedildi'\n")    
+                c_resp = requests.post(f"https://gitlab.com/api/v4/projects/{proj_id}/issues", headers=HEADERS, json=c_data)
+                
+                if c_resp.status_code == 201:
+                    c_iid = c_resp.json()["iid"]
+                    link_issues(int(MASTER_PROJECT_ID), m_iid, proj_id, c_iid)
+                    # Buradaki print'i de güzelleştirelim (Proje adı zaten var ama olsun)
+                    print(f"  ✅ -> Child Issue Oluşturuldu ({p_name}) ve linklendi.")
+                else:
+                    print(f"  ⚠️ Child Issue hatası: {c_resp.status_code}")
 
-#subprocess.run(["python", "sync_gitlab_status_to_jira.py"])
+            # --- 4. CSV Güncelle ---
+            if os.path.exists(UPLOADED_FILE) and os.path.getsize(UPLOADED_FILE) > 0:
+                udf = pd.read_csv(UPLOADED_FILE, encoding="utf-8-sig")
+            else:
+                udf = pd.DataFrame(columns=row.keys())
+            
+            if not ((udf.get('Issue key') == row['Issue key']).any()):
+                udf = pd.concat([udf, pd.DataFrame([row])], ignore_index=True)
+                udf.to_csv(UPLOADED_FILE, index=False, encoding="utf-8-sig")
+                print(f"✔️  '{jira_key}' uploaded CSV'ye eklendi.")
+                synced_count += 1
+        
+        print(f"\n✅ SÜREÇ TAMAMLANDI. Toplam {synced_count} issue aktarıldı.\n")
