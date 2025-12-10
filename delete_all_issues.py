@@ -95,3 +95,6 @@ if __name__ == "__main__":
         delete_group_milestones()
     else:
         print("🚫 İşlem iptal edildi.")
+
+
+##Buraya şey eklenebilir eğer .env api lara erişemediği için se hata veriyor orada print vereblir haya yerine
