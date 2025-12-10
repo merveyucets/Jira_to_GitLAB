@@ -23,8 +23,22 @@ GROUP_ID = os.getenv("GROUP_ID")  # Yeni: milestone'lar burada açılacak
 JIRA_URL = os.getenv("JIRA_URL")  # Örn: http://10.0.38.254
 JIRA_EMAIL = os.getenv("JIRA_EMAIL")  # Jira kullanıcı adı
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")  # Şifre veya API token
-JQL = "project = GYT AND created >= -15d"
+
+
+#JQL = "project = GYT AND created >= -15d"
+#CSV_FILE = "jira_export_all.csv"
+
+# --- JQL AYARI (ARAYÜZ DESTEKLİ) ---
+# Eğer program çalıştırılırken dışarıdan parametre gelirse (sys.argv), JQL onu kullanır.
+if len(sys.argv) > 1:
+    JQL = sys.argv[1]
+    print(f"📡 Arayüzden Gelen JQL Kullanılıyor: {JQL}")
+else:
+    # Arayüzden bir şey gelmezse varsayılan budur
+    JQL = "project = GYT AND created >= -15d"
+
 CSV_FILE = "jira_export_all.csv"
+
 
 
 HEADERS = {
@@ -307,4 +321,4 @@ if __name__ == "__main__":
 
     print(f"\n✅ Aktarım tamamlandı. Toplam --{synced_issue_count}-- issue Gitlab'e aktarıldı ve 'Jira Uploaded CSV'ye kaydedildi'\n")    
 
-subprocess.run(["python", "sync_gitlab_status_to_jira.py"])
+#subprocess.run(["python", "sync_gitlab_status_to_jira.py"])

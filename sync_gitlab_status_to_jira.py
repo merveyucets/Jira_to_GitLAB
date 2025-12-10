@@ -5,10 +5,8 @@ from dotenv import load_dotenv
 import time
 import pandas as pd
 
-# .env yükle
 load_dotenv()
 
-# --- KONFİGÜRASYON ---
 GITLAB_TOKEN = os.getenv("GITLAB_TOKEN")
 MASTER_PROJECT_ID = os.getenv("MASTER_PROJECT_ID")
 JIRA_URL = os.getenv("JIRA_URL")
@@ -28,11 +26,8 @@ JIRA_HEADERS = {
     "Accept": "application/json"
 }
 
-# HEDEF STATÜLER (Bitiş Noktası)
+# HEDEF STATÜLER
 TARGET_STATUS_NAMES = ["Done", "Closed", "Bitti", "Tamamlandı", "Kapalı", "Çözülmüş"]
-
-# ARA STATÜLER (Aktarma Noktası)
-# Eğer direkt bitiremezsek, önce buraya uğrayacağız.
 INTERMEDIATE_STATUS_NAMES = ["In Progress", "Devam", "Devam Ediyor", "Yapılıyor"]
 
 def get_closed_gitlab_issues(project_id):
@@ -63,7 +58,7 @@ def find_transition_id(jira_key, possible_status_names):
     
     transitions = r.json().get("transitions", [])
     
-    # Debug için mevcut yolları görelim
+    # Debug için mevcut yollar
     # print(f"   (Debug) {jira_key} için yollar: {[t['to']['name'] for t in transitions]}")
 
     for t in transitions:
@@ -71,10 +66,7 @@ def find_transition_id(jira_key, possible_status_names):
             return t['id']
     return None
 
-# --- smart_transition_to_done FONKSİYONUNU BU ŞEKİLDE GÜNCELLE ---
-
 def smart_transition_to_done(jira_key):
-    # ... (1. Adım aynı kalacak) ...
     print(f"   Checking direct path to Done for {jira_key}...")
     direct_id = find_transition_id(jira_key, TARGET_STATUS_NAMES)
     
@@ -93,10 +85,9 @@ def smart_transition_to_done(jira_key):
         if execute_transition(jira_key, intermediate_id):
             print("   ✔️ 'Devam' statüsüne alındı. Bekleniyor...")
             
-            # Jira'nın nefes alması için süreyi biraz artıralım
             time.sleep(2) 
             
-            # --- DEBUG BAŞLANGICI: BURAYI İYİ İZLE ---
+            # --- DEBUG BAŞLANGICI ---
             print(f"\n   🕵️  DEBUG: {jira_key} şu an 'In Progress'te. Peki buradan nereye gidilebilir?")
             url = f"{JIRA_URL}/rest/api/2/issue/{jira_key}/transitions"
             temp_r = requests.get(url, headers=JIRA_HEADERS)
@@ -162,5 +153,5 @@ if __name__ == "__main__":
             print("f{jira_key} uploaded_file de status=çözülmüş olarak güncellendi." )
             continue
         
-        # Zeki fonksiyonu çağır
+        # Fonksiyonu çağır
         smart_transition_to_done(jira_key)  
