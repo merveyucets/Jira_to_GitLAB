@@ -16,7 +16,7 @@ def fetch_jira_csv(gelen_jql):
     all_issues = []
 
     JQL = gelen_jql
-    print(f"✅ Jira Sorgusu Çalıştırılıyor: {JQL}")
+    print(f"Jira Sorgusu Çalıştırılıyor")
     
     
     headers = {
