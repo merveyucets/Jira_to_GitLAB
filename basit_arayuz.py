@@ -17,10 +17,11 @@ class DualSyncApp(ctk.CTk):
         super().__init__()
 
         self.title("GIT ⇌ JIRA Operasyon Merkezi")
-        self.geometry("1100x900") # İki tablo sığsın diye biraz daha uzattık
+        self.geometry("1250x950")
 
         self.font_title = ("Roboto Medium", 20)
         self.font_console = ("JetBrains Mono", 12)
+        self.font_ui = ("Roboto", 12)
 
         # --- RESİM VE KLASÖR AYARLARI ---
         self.current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,7 +51,7 @@ class DualSyncApp(ctk.CTk):
         # ========================================================
         #              ANA SEKMELİ YAPI (TABVIEW)
         # ========================================================
-        self.tabview = ctk.CTkTabview(self, width=1060, height=750)
+        self.tabview = ctk.CTkTabview(self, width=1200, height=850)
         self.tabview.pack(fill="both", expand=True, padx=20, pady=(10, 10))
 
         # Sekmeleri Oluştur
@@ -58,15 +59,11 @@ class DualSyncApp(ctk.CTk):
         self.tab_settings = self.tabview.add("⚙️ Ayarlar")
 
         # ========================================================
-        #           SEKME 1: AKTARIM MERKEZİ
+        #           SEKME 1: AKTARIM MERKEZİ & FİLTRELER
         # ========================================================
         
-        # --- JQL GİRİŞ ALANI ---
-        self.input_label = ctk.CTkLabel(self.tab_main, text="JQL FİLTRESİ (Sadece Sol Taraf İçin):", font=("Roboto", 12, "bold"), text_color="gray")
-        self.input_label.pack(anchor="w", pady=(0, 5), padx=10)
-
-        self.jql_entry = ctk.CTkEntry(self.tab_main, placeholder_text="Örn: project = GYT", height=40, font=("Consolas", 14), border_width=0, fg_color="#D3D3D3")
-        self.jql_entry.pack(fill="x", padx=10, pady=(0, 15))
+        # --- GÖRSEL FİLTRELEME ALANI ---
+        self.create_filter_ui(self.tab_main)
 
         # --- BÖLÜNMÜŞ EKRAN YAPISI ---
         self.split_frame = ctk.CTkFrame(self.tab_main, fg_color="transparent")
@@ -123,28 +120,258 @@ class DualSyncApp(ctk.CTk):
         self.console_right.insert("0.0", "Hazır. Status güncellemek için TURUNCU butona basın.\n", "dim")
 
         # ========================================================
-        #           SEKME 2: AYARLAR PANELİ (YENİ YAPILANDIRMA)
+        #           SEKME 2: AYARLAR PANELİ
         # ========================================================
         self.create_settings_tab() 
         self.load_initial_jql()
+        self.refresh_dropdown_data() # Dropdownları doldur
+
+    # --- VERİ YÜKLEME ---
+    def get_config_data(self):
+        users = []
+        teams = []
+        try:
+            with open("config.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for u in data.get("user_mappings", []):
+                name = u.get("jira_user", "").strip()
+                if name: users.append(name)
+            for t in data.get("team_mappings", []):
+                tech_name = t.get("jira_team_name", "").strip()
+                if tech_name: teams.append(tech_name)
+        except Exception: pass
+        return users, teams
+
+    def refresh_dropdown_data(self):
+        users, teams = self.get_config_data()
+        if hasattr(self, 'combo_assignee'):
+            self.combo_assignee.configure(values=users)
+            self.combo_assignee.set("Seçiniz...")
+        if hasattr(self, 'combo_team'):
+            self.combo_team.configure(values=teams)
+            self.combo_team.set("Seçiniz...")
+
+    # --- ÇOKLU SEÇİM YARDIMCILARI ---
+    def add_to_selection(self, value, container, storage_list):
+        if value == "Seçiniz..." or not value: return
+        if value in storage_list: return
+
+        storage_list.append(value)
+        btn = ctk.CTkButton(container, text=f"{value} ✖", height=24, fg_color="#DDDDDD", text_color="black", hover_color="#C0392B")
+        btn.configure(command=lambda b=btn, v=value: self.remove_from_selection(b, v, storage_list))
+        btn.pack(side="left", padx=2, pady=2)
+
+    def remove_from_selection(self, btn, value, storage_list):
+        if value in storage_list: storage_list.remove(value)
+        btn.destroy()
+
+    def toggle_all(self, var_dict, state):
+        for var in var_dict.values(): var.set(state)
+
+    # --- FİLTRELEME ARAYÜZÜ ---
+    def create_filter_ui(self, parent):
+        filter_frame = ctk.CTkFrame(parent, fg_color="#E8E8E8", corner_radius=10)
+        filter_frame.pack(fill="x", padx=10, pady=(0, 10), ipadx=5, ipady=5)
+
+        # ---------------- 1. SATIR: Proje, Key, Zaman ----------------
+        row1 = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        row1.pack(fill="x", padx=10, pady=2)
+
+        ctk.CTkLabel(row1, text="Proje:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 2))
+        self.entry_project = ctk.CTkEntry(row1, width=60)
+        self.entry_project.pack(side="left", padx=(0, 10))
+        self.entry_project.insert(0, "GYT")
+
+        ctk.CTkLabel(row1, text="Key:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 2))
+        self.entry_key = ctk.CTkEntry(row1, placeholder_text="149", width=60)
+        self.entry_key.pack(side="left", padx=(0, 10))
+
+        ctk.CTkLabel(row1, text="Zaman:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 2))
+        self.combo_time = ctk.CTkComboBox(row1, values=["Son 24 Saat", "Son 7 Gün", "Son 15 Gün", "Son 30 Gün", "Tüm Zamanlar"], width=110)
+        self.combo_time.pack(side="left", padx=(0, 10))
+        self.combo_time.set("Son 15 Gün")
+
+        ctk.CTkLabel(row1, text="Etiket:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 2))
+        self.entry_label = ctk.CTkEntry(row1, placeholder_text="frontend", width=90)
+        self.entry_label.pack(side="left", padx=(0, 10))
+
+        ctk.CTkLabel(row1, text="Öncelik:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 5))
+        p_frame = ctk.CTkFrame(row1, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC", height=30)
+        p_frame.pack(side="left", fill="x")
+        
+        self.vars_priority = {}
+        priorities = ["High", "Medium", "Low"]
+        for p in priorities:
+            var = ctk.BooleanVar(value=True) 
+            cb = ctk.CTkCheckBox(p_frame, text=p, variable=var, width=50, checkbox_width=16, checkbox_height=16, text_color="black", font=("Roboto", 11))
+            cb.pack(side="left", padx=5, pady=5)
+            self.vars_priority[p] = var
+
+        # ---------------- 3. SATIR: Atanan & Takım (AŞAĞI KAYDIRILDI) ----------------
+        row3 = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        row3.pack(fill="x", padx=10, pady=5)
+
+        # Atanan (Assignee)
+        assignee_box = ctk.CTkFrame(row3, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC")
+        assignee_box.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        a_head = ctk.CTkFrame(assignee_box, fg_color="transparent")
+        a_head.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(a_head, text="Atanan Kişiler", font=("Roboto", 11, "bold"), text_color="gray").pack(side="left")
+        
+        self.selected_assignees = []
+        self.assignee_container = ctk.CTkScrollableFrame(assignee_box, height=35, fg_color="transparent", orientation="horizontal")
+        self.assignee_container.pack(fill="x", padx=5, pady=2)
+        
+        self.combo_assignee = ctk.CTkComboBox(a_head, values=["Yükleniyor..."], width=130, 
+                                              command=lambda val: self.add_to_selection(val, self.assignee_container, self.selected_assignees))
+        self.combo_assignee.pack(side="right")
+
+        # Takım (Team)
+        team_box = ctk.CTkFrame(row3, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC")
+        team_box.pack(side="left", fill="x", expand=True, padx=(0, 0))
+        
+        t_head = ctk.CTkFrame(team_box, fg_color="transparent")
+        t_head.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(t_head, text="Takımlar (Stajyerler)", font=("Roboto", 11, "bold"), text_color="gray").pack(side="left")
+        
+        self.selected_teams = []
+        self.team_container = ctk.CTkScrollableFrame(team_box, height=35, fg_color="transparent", orientation="horizontal")
+        self.team_container.pack(fill="x", padx=5, pady=2)
+        
+        self.combo_team = ctk.CTkComboBox(t_head, values=["Yükleniyor..."], width=130,
+                                          command=lambda val: self.add_to_selection(val, self.team_container, self.selected_teams))
+        self.combo_team.pack(side="right")
+
+        # ---------------- 4. SATIR: Statü ve Tip Grupları ----------------
+        row4 = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        row4.pack(fill="x", padx=10, pady=5)
+
+        # --- STATÜ GRUBU ---
+        status_frame = ctk.CTkFrame(row4, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC")
+        status_frame.pack(side="left", fill="x", expand=True, padx=(0, 10), ipady=5)
+        
+        s_head = ctk.CTkFrame(status_frame, fg_color="transparent", height=20)
+        s_head.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(s_head, text="Statüler", font=("Roboto", 12, "bold"), text_color="gray").pack(side="left")
+        ctk.CTkButton(s_head, text="Hepsini Seç", width=60, height=20, font=("Roboto", 10), fg_color="#DDD", text_color="black", hover_color="#CCC", command=lambda: self.toggle_all(self.vars_status, True)).pack(side="right")
+        ctk.CTkButton(s_head, text="Temizle", width=50, height=20, font=("Roboto", 10), fg_color="#DDD", text_color="black", hover_color="#CCC", command=lambda: self.toggle_all(self.vars_status, False)).pack(side="right", padx=2)
+
+        self.vars_status = {}
+        statuses = ["To Do", "In Progress", "Done", "Backlog", "In Review"]
+        s_box_frame = ctk.CTkFrame(status_frame, fg_color="transparent")
+        s_box_frame.pack(fill="x", padx=5)
+        for s in statuses:
+            var = ctk.BooleanVar(value=True if s != "Done" else False)
+            cb = ctk.CTkCheckBox(s_box_frame, text=s, variable=var, width=60, checkbox_width=18, checkbox_height=18, text_color="black")
+            cb.pack(side="left", padx=5)
+            self.vars_status[s] = var
+
+        # --- TİP GRUBU ---
+        type_frame = ctk.CTkFrame(row4, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC")
+        type_frame.pack(side="left", fill="x", expand=True, padx=(0, 0), ipady=5)
+
+        t_head = ctk.CTkFrame(type_frame, fg_color="transparent", height=20)
+        t_head.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(t_head, text="Tipler", font=("Roboto", 12, "bold"), text_color="gray").pack(side="left")
+        ctk.CTkButton(t_head, text="Hepsini Seç", width=60, height=20, font=("Roboto", 10), fg_color="#DDD", text_color="black", hover_color="#CCC", command=lambda: self.toggle_all(self.vars_type, True)).pack(side="right")
+        ctk.CTkButton(t_head, text="Temizle", width=50, height=20, font=("Roboto", 10), fg_color="#DDD", text_color="black", hover_color="#CCC", command=lambda: self.toggle_all(self.vars_type, False)).pack(side="right", padx=2)
+
+        self.vars_type = {}
+        types = ["Bug", "Task", "Story", "Sub-task", "Epic"]
+        t_box_frame = ctk.CTkFrame(type_frame, fg_color="transparent")
+        t_box_frame.pack(fill="x", padx=5)
+        for t in types:
+            var = ctk.BooleanVar(value=True)
+            cb = ctk.CTkCheckBox(t_box_frame, text=t, variable=var, width=60, checkbox_width=18, checkbox_height=18, text_color="black")
+            cb.pack(side="left", padx=5)
+            self.vars_type[t] = var
+
+        # 5. SATIR: BUTON VE ÇIKTI
+        action_box = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        action_box.pack(fill="x", padx=10, pady=5)
+
+        btn_gen = ctk.CTkButton(action_box, text="⬇️ JQL OLUŞTUR", width=150, fg_color="#555555", command=self.generate_jql_from_ui)
+        btn_gen.pack(side="left", padx=(0, 10))
+
+        self.jql_entry = ctk.CTkEntry(action_box, height=35, font=("Consolas", 13))
+        #self.jql_entry.pack(side="left", fill="x", expand=True)
+
+    def generate_jql_from_ui(self):
+        parts = []
+        
+        proj = self.entry_project.get().strip()
+        specific_key_input = self.entry_key.get().strip()
+        
+        if specific_key_input:
+            if specific_key_input.isdigit() and proj:
+                final_key = f"{proj}-{specific_key_input}" 
+            else:
+                final_key = specific_key_input
+            jql = f"key = {final_key}"
+            self.jql_entry.delete(0, "end")
+            self.jql_entry.insert(0, jql)
+            return
+
+        if proj: parts.append(f"project = {proj}")
+
+        # Zaman
+        time_map = {"Son 24 Saat": "-24h", "Son 7 Gün": "-7d", "Son 15 Gün": "-15d", "Son 30 Gün": "-30d"}
+        sel_time = self.combo_time.get()
+        if sel_time in time_map: parts.append(f"created >= {time_map[sel_time]}")
+
+        # Atanan (Çoklu)
+        if self.selected_assignees:
+            assignee_str = ", ".join([f'"{u}"' for u in self.selected_assignees])
+            parts.append(f"assignee in ({assignee_str})")
+
+        # Takım (Çoklu)
+        if self.selected_teams:
+            team_str = ", ".join([f'"{t}"' for t in self.selected_teams])
+            parts.append(f'"İlgili Stajyerler" in ({team_str})')
+
+        # Labels
+        label = self.entry_label.get().strip()
+        if label: parts.append(f'labels = "{label}"')
+
+        # Öncelik (Çoklu)
+        sel_prio = [p for p, var in self.vars_priority.items() if var.get()]
+        if sel_prio:
+            prio_str = ", ".join([f'"{p}"' for p in sel_prio])
+            parts.append(f"priority in ({prio_str})")
+
+        # Statüler
+        sel_stats = [s for s, var in self.vars_status.items() if var.get()]
+        if sel_stats:
+            status_str = ", ".join([f'"{s}"' for s in sel_stats])
+            parts.append(f"status in ({status_str})")
+
+        # Tipler
+        sel_types = [t for t, var in self.vars_type.items() if var.get()]
+        if sel_types:
+            type_str = ", ".join([f'"{t}"' for t in sel_types])
+            parts.append(f"issuetype in ({type_str})")
+
+        full_jql = " AND ".join(parts)
+        self.jql_entry.delete(0, "end")
+        self.jql_entry.insert(0, full_jql)
 
     # --- AYARLAR FONKSİYONLARI ---
     def create_settings_tab(self):
         """Ayarlar Sekmesini oluşturur: Global, Takım Map, User Map."""
         settings_tab = self.tab_settings
         
-        # 1. Kaydet Butonu (En Üstte Olsun, Kolay Erişim)
+        # 1. Kaydet Butonu (Sabit En Üstte)
         btn_save = ctk.CTkButton(settings_tab, text="💾 TÜM AYARLARI KAYDET VE UYGULA", 
                                  fg_color="#27AE60", hover_color="#1E8449", height=40, font=("Roboto", 14, "bold"),
                                  command=self.save_settings)
         btn_save.pack(fill="x", padx=10, pady=10)
 
-        # --- SCROLLABLE ANA FRAME ---
-        # Tüm ayarları içine alan kaydırılabilir bir alan
+        # --- ANA SCROLLABLE FRAME ---
         self.main_scroll = ctk.CTkScrollableFrame(settings_tab, fg_color="transparent")
         self.main_scroll.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # --- A) GLOBAL AYARLAR ---
+        # --- A) GLOBAL AYARLAR (.env) ---
         self.global_frame = ctk.CTkFrame(self.main_scroll)
         self.global_frame.pack(fill="x", padx=5, pady=10)
         
@@ -166,45 +393,51 @@ class DualSyncApp(ctk.CTk):
             entry.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             self.api_entries[key] = entry
 
-        # --- B) TAKIM & PROJE HARİTASI ---
+        # --- B) TAKIM & PROJE HARİTASI (SCROLLABLE TABLO) ---
         self.team_frame = ctk.CTkFrame(self.main_scroll)
         self.team_frame.pack(fill="x", padx=5, pady=10)
         
-        ctk.CTkLabel(self.team_frame, text="1. Takım & Proje Eşleşmeleri (Jira Takım -> GitLab Proje)", font=("Roboto", 14, "bold"), text_color="#E67E22").pack(anchor="w", padx=10, pady=5)
-        
-        # Başlıklar
+        # Başlık ve Ekle Butonu
+        t_header_box = ctk.CTkFrame(self.team_frame, fg_color="transparent")
+        t_header_box.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(t_header_box, text="1. Takım & Proje Eşleşmeleri", font=("Roboto", 14, "bold"), text_color="#E67E22").pack(side="left")
+        ctk.CTkButton(t_header_box, text="+ Yeni Takım", width=100, height=25, command=lambda: self.add_team_row({})).pack(side="right")
+
+        # Tablo Başlıkları
         t_head = ctk.CTkFrame(self.team_frame, fg_color="gray", height=30)
         t_head.pack(fill="x", padx=5)
         for i, t in enumerate(["Jira Takım Adı", "GitLab Proje ID", "Görünür İsim", "Sil"]):
             t_head.columnconfigure(i, weight=1 if i==3 else 3)
-            ctk.CTkLabel(t_head, text=t, font=("Roboto", 12, "bold")).grid(row=0, column=i, sticky="ew")
+            ctk.CTkLabel(t_head, text=t, font=("Roboto", 12, "bold"), text_color="white").grid(row=0, column=i, sticky="ew")
 
-        # Satırlar için container
-        self.team_rows_container = ctk.CTkFrame(self.team_frame, fg_color="transparent")
-        self.team_rows_container.pack(fill="x", padx=5, pady=5)
+        # --> İŞTE BURASI: Tablo İçeriği İçin Scrollable Frame (Max Yükseklik Verildi)
+        self.team_scroll_container = ctk.CTkScrollableFrame(self.team_frame, height=200, fg_color="transparent") 
+        self.team_scroll_container.pack(fill="x", padx=5, pady=(0, 5))
+        
         self.team_entries = [] # Referansları tut
 
-        ctk.CTkButton(self.team_frame, text="+ Yeni Takım Ekle", height=25, command=lambda: self.add_team_row({})).pack(pady=5)
-
-        # --- C) KULLANICI HARİTASI ---
+        # --- C) KULLANICI HARİTASI (SCROLLABLE TABLO) ---
         self.user_frame = ctk.CTkFrame(self.main_scroll)
         self.user_frame.pack(fill="x", padx=5, pady=10)
         
-        ctk.CTkLabel(self.user_frame, text="2. Kullanıcı Eşleşmeleri (Jira User -> GitLab User ID)", font=("Roboto", 14, "bold"), text_color="#2980B9").pack(anchor="w", padx=10, pady=5)
+        # Başlık ve Ekle Butonu
+        u_header_box = ctk.CTkFrame(self.user_frame, fg_color="transparent")
+        u_header_box.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(u_header_box, text="2. Kullanıcı Eşleşmeleri", font=("Roboto", 14, "bold"), text_color="#2980B9").pack(side="left")
+        ctk.CTkButton(u_header_box, text="+ Yeni Kullanıcı", width=100, height=25, command=lambda: self.add_user_row({})).pack(side="right")
         
-        # Başlıklar
+        # Tablo Başlıkları
         u_head = ctk.CTkFrame(self.user_frame, fg_color="gray", height=30)
         u_head.pack(fill="x", padx=5)
         for i, t in enumerate(["Jira Kullanıcı Adı", "GitLab User ID", "Sil"]):
             u_head.columnconfigure(i, weight=1 if i==2 else 3)
-            ctk.CTkLabel(u_head, text=t, font=("Roboto", 12, "bold")).grid(row=0, column=i, sticky="ew")
+            ctk.CTkLabel(u_head, text=t, font=("Roboto", 12, "bold"), text_color="white").grid(row=0, column=i, sticky="ew")
 
-        # Satırlar için container
-        self.user_rows_container = ctk.CTkFrame(self.user_frame, fg_color="transparent")
-        self.user_rows_container.pack(fill="x", padx=5, pady=5)
+        # --> İŞTE BURASI: Tablo İçeriği İçin Scrollable Frame (Max Yükseklik Verildi)
+        self.user_scroll_container = ctk.CTkScrollableFrame(self.user_frame, height=200, fg_color="transparent") # Yükseklik 200px sabit
+        self.user_scroll_container.pack(fill="x", padx=5, pady=(0, 5))
+        
         self.user_entries = [] # Referansları tut
-
-        ctk.CTkButton(self.user_frame, text="+ Yeni Kullanıcı Ekle", height=25, command=lambda: self.add_user_row({})).pack(pady=5)
 
         # Yükle
         self.load_global_settings()
@@ -218,7 +451,6 @@ class DualSyncApp(ctk.CTk):
             entry.insert(0, os.getenv(key, ""))
 
     def load_mapping_settings(self):
-        # Önce temizle (Yenileme için)
         for frame, _ in self.team_entries: frame.destroy()
         for frame, _ in self.user_entries: frame.destroy()
         self.team_entries = []
@@ -229,17 +461,15 @@ class DualSyncApp(ctk.CTk):
                 data = json.load(f)
         except: data = {}
 
-        # Takımları Yükle
         for item in data.get("team_mappings", []):
             self.add_team_row(item)
         
-        # Kullanıcıları Yükle
         for item in data.get("user_mappings", []):
             self.add_user_row(item)
 
     # --- SATIR EKLEME METOTLARI ---
     def add_team_row(self, data):
-        row = ctk.CTkFrame(self.team_rows_container, fg_color="white")
+        row = ctk.CTkFrame(self.team_scroll_container, fg_color="transparent")
         row.pack(fill="x", pady=2)
         for i in range(4): row.columnconfigure(i, weight=1 if i==3 else 3)
         
@@ -258,7 +488,7 @@ class DualSyncApp(ctk.CTk):
         self.team_entries.append((row, entries))
 
     def add_user_row(self, data):
-        row = ctk.CTkFrame(self.user_rows_container, fg_color="white")
+        row = ctk.CTkFrame(self.user_scroll_container, fg_color="transparent")
         row.pack(fill="x", pady=2)
         for i in range(3): row.columnconfigure(i, weight=1 if i==2 else 3)
         
@@ -278,12 +508,9 @@ class DualSyncApp(ctk.CTk):
 
     def remove_row(self, row_frame, list_ref):
         row_frame.destroy()
-        # Listeden de silmemiz lazım, ancak lambda içinde direkt index bulmak zor.
-        # Basitçe: Save sırasında destroy edilmiş widget'ları kontrol edeceğiz.
         
     # --- KAYDETME ---
     def save_settings(self):
-        # 1. .env Kaydet
         env_lines = [f"{k}={e.get()}" for k, e in self.api_entries.items()]
         try:
             with open(".env", "w") as f: f.write("\n".join(env_lines))
@@ -291,14 +518,12 @@ class DualSyncApp(ctk.CTk):
         except Exception as e:
             self.log_yaz(self.console_left, f"❌ .env Hatası: {e}\n", "error")
 
-        # 2. config.json Kaydet
         try:
             with open("config.json", "r", encoding="utf-8") as f: 
                 settings = json.load(f).get("settings", {})
         except: 
             settings = {"default_jql": "project = GYT AND created >= -15d"}
 
-        # Takımları Topla
         new_teams = []
         for row, ent in self.team_entries:
             if row.winfo_exists() and ent["jira_team_name"].get().strip():
@@ -311,7 +536,6 @@ class DualSyncApp(ctk.CTk):
                 except ValueError:
                     self.log_yaz(self.console_left, "❌ HATA: Proje ID sayı olmalı.\n", "error"); return
 
-        # Kullanıcıları Topla
         new_users = []
         for row, ent in self.user_entries:
             if row.winfo_exists() and ent["jira_user"].get().strip():
@@ -323,7 +547,6 @@ class DualSyncApp(ctk.CTk):
                 except ValueError:
                     self.log_yaz(self.console_left, "❌ HATA: User ID sayı olmalı.\n", "error"); return
 
-        # Yaz
         final_data = {
             "team_mappings": new_teams,
             "user_mappings": new_users,
@@ -334,6 +557,10 @@ class DualSyncApp(ctk.CTk):
             with open("config.json", "w", encoding="utf-8") as f:
                 json.dump(final_data, f, indent=2, ensure_ascii=False)
             self.log_yaz(self.console_left, "✅ Config Ayarları (config.json) kaydedildi.\n", "success")
+            
+            # --- YENİ: Kaydetme sonrası dropdown'ları da güncelle ---
+            self.refresh_dropdown_data()
+            
         except Exception as e:
             self.log_yaz(self.console_left, f"❌ config.json Hatası: {e}\n", "error")
             
