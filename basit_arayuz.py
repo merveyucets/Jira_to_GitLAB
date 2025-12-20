@@ -192,7 +192,7 @@ class DualSyncApp(ctk.CTk):
     # --- FİLTRELEME ARAYÜZÜ ---
     def create_filter_ui(self, parent):
         self.filter_frame = ctk.CTkFrame(parent, fg_color="#E8E8E8", corner_radius=10)
-        #self.filter_frame.pack(fill="x", padx=10, pady=(0, 10), ipadx=5, ipady=5)
+        
 
         # ---------------- 1. SATIR: Proje, Key, Zaman ----------------
         row1 = ctk.CTkFrame(self.filter_frame, fg_color="transparent")
@@ -217,18 +217,30 @@ class DualSyncApp(ctk.CTk):
         self.entry_label.pack(side="left", padx=(0, 10))
 
         ctk.CTkLabel(row1, text="Öncelik:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 5))
-        p_frame = ctk.CTkFrame(row1, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC", height=30)
-        p_frame.pack(side="left", fill="x")
+        p_frame = ctk.CTkFrame(row1, fg_color="white", corner_radius=6, border_width=1, border_color="#CCC") # height=30 silindi
+        p_frame.pack(side="left", fill="x", padx=(0, 10))
         
         self.vars_priority = {}
         priorities = ["High", "Medium", "Low"]
+
+        def on_prio_change(selected_p):
+            # Eğer tıklanan kutu seçiliyse (True olduysa), diğerlerini kapat
+            if self.vars_priority[selected_p].get():
+                for p_name, var in self.vars_priority.items():
+                    if p_name != selected_p:
+                        var.set(False)
+
         for p in priorities:
-            var = ctk.BooleanVar(value=True) 
-            cb = ctk.CTkCheckBox(p_frame, text=p, variable=var, width=50, checkbox_width=16, checkbox_height=16, text_color="black", font=("Roboto", 11))
-            cb.pack(side="left", padx=5, pady=5)
+            # value=False yaparak başlangıçta boş gelmesini sağlıyoruz
+            var = ctk.BooleanVar(value=False) 
+            cb = ctk.CTkCheckBox(p_frame, text=p, variable=var, width=45, 
+                                checkbox_width=16, checkbox_height=16, 
+                                text_color="black", font=("Roboto", 11),
+                                command=lambda p_name=p: on_prio_change(p_name))
+            cb.pack(side="left", padx=5, pady=2)
             self.vars_priority[p] = var
 
-        # ---------------- 3. SATIR: Atanan & Takım (AŞAĞI KAYDIRILDI) ----------------
+        # ---------------- 3. SATIR: Atanan & Takım ----------------
         row3 = ctk.CTkFrame(self.filter_frame, fg_color="transparent")
         row3.pack(fill="x", padx=10, pady=5)
 
@@ -242,7 +254,7 @@ class DualSyncApp(ctk.CTk):
         
         self.selected_assignees = []
         self.assignee_container = ctk.CTkScrollableFrame(assignee_box, height=35, fg_color="transparent", orientation="horizontal")
-        self.assignee_container.pack(fill="x", padx=5, pady=2)
+        self.assignee_container.pack(fill="x", padx=5, pady=0)
         
         self.combo_assignee = ctk.CTkComboBox(a_head, values=["Yükleniyor..."], width=130, 
                                               command=lambda val: self.add_to_selection(val, self.assignee_container, self.selected_assignees))
@@ -258,7 +270,7 @@ class DualSyncApp(ctk.CTk):
         
         self.selected_teams = []
         self.team_container = ctk.CTkScrollableFrame(team_box, height=35, fg_color="transparent", orientation="horizontal")
-        self.team_container.pack(fill="x", padx=5, pady=2)
+        self.team_container.pack(fill="x", padx=5, pady=0)
         
         self.combo_team = ctk.CTkComboBox(t_head, values=["Yükleniyor..."], width=130,
                                           command=lambda val: self.add_to_selection(val, self.team_container, self.selected_teams))
@@ -283,7 +295,7 @@ class DualSyncApp(ctk.CTk):
         s_box_frame = ctk.CTkFrame(status_frame, fg_color="transparent")
         s_box_frame.pack(fill="x", padx=5)
         for s in statuses:
-            var = ctk.BooleanVar(value=True if s != "Done" else False)
+            var = ctk.BooleanVar(value=False )
             cb = ctk.CTkCheckBox(s_box_frame, text=s, variable=var, width=60, checkbox_width=18, checkbox_height=18, text_color="black")
             cb.pack(side="left", padx=5)
             self.vars_status[s] = var
@@ -303,7 +315,7 @@ class DualSyncApp(ctk.CTk):
         t_box_frame = ctk.CTkFrame(type_frame, fg_color="transparent")
         t_box_frame.pack(fill="x", padx=5)
         for t in types:
-            var = ctk.BooleanVar(value=True)
+            var = ctk.BooleanVar(value=False)
             cb = ctk.CTkCheckBox(t_box_frame, text=t, variable=var, width=60, checkbox_width=18, checkbox_height=18, text_color="black")
             cb.pack(side="left", padx=5)
             self.vars_type[t] = var
@@ -379,7 +391,6 @@ class DualSyncApp(ctk.CTk):
 
     # --- AYARLAR FONKSİYONLARI ---
     def create_settings_tab(self):
-        """Ayarlar Sekmesini oluşturur: Global, Takım Map, User Map."""
         settings_tab = self.tab_settings
         
         # 1. Kaydet Butonu (Sabit En Üstte)
@@ -455,7 +466,7 @@ class DualSyncApp(ctk.CTk):
             ctk.CTkLabel(u_head, text=t, font=("Roboto", 12, "bold"), text_color="white").grid(row=0, column=i, sticky="ew")
 
         # --> İŞTE BURASI: Tablo İçeriği İçin Scrollable Frame (Max Yükseklik Verildi)
-        self.user_scroll_container = ctk.CTkScrollableFrame(self.user_frame, height=200, fg_color="transparent") # Yükseklik 200px sabit
+        self.user_scroll_container = ctk.CTkScrollableFrame(self.user_frame, height=200, fg_color="transparent") 
         self.user_scroll_container.pack(fill="x", padx=5, pady=(0, 5))
         
         self.user_entries = [] # Referansları tut
@@ -696,7 +707,7 @@ class DualSyncApp(ctk.CTk):
             self.btn_left.configure(state="disabled")
         elif "Gitlab'e aktarılacak toplam" in output_text:
             self.goster_onay_iptal()
-            self.log_yaz(self.console_left, "\n⬇️ Lütfen işlemi ONAYLAYIN veya İPTAL edin.\n", "success")
+            #self.log_yaz(self.console_left, "\n⬇️ Lütfen işlemi ONAYLAYIN veya İPTAL edin.\n", "success")
             self.btn_left.configure(state="normal")
 
     def on_execute_complete(self, return_code, output_text):

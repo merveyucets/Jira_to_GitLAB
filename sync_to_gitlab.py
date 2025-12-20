@@ -36,7 +36,6 @@ TEAM_NAME_MAP = {}
 JQL = "project = GYT AND created >= -15d" 
 
 def load_config():
-    """config.json dosyasını okur ve MAP değişkenlerini doldurur."""
     global ASSIGNEE_MAP, TEAM_PROJECT_MAP, TEAM_NAME_MAP, JQL
     
     if not os.path.exists(CONFIG_FILE):
@@ -67,7 +66,7 @@ def load_config():
                     if g_proj_id: TEAM_PROJECT_MAP[j_team] = g_proj_id
                     if f_name: TEAM_NAME_MAP[j_team] = f_name
             
-        print("✅ Ayarlar ve veriler config dosyasından başarıyla yüklendi.")
+        #print("✅ Ayarlar ve veriler config dosyasından başarıyla yüklendi.")
 
     except Exception as e:
         print(f"❌ Config yükleme hatası: {e}")
@@ -231,7 +230,7 @@ def get_readable_team_names(team_list):
 if __name__ == "__main__":
     
     if MODE == "--preview":
-        print(f"📡 Arayüzden Gelen JQL Kullanılıyor: {JQL}")
+        #print(f"📡 Arayüzden Gelen JQL Kullanılıyor: {JQL}")
         try:
             test_resp = requests.get(f"{JIRA_URL}/rest/api/2/myself", headers=JIRA_AUTH_HEADERS)
             if test_resp.status_code == 200: print("✅ Jira API Bağlantısı Başarılı.")
@@ -268,7 +267,7 @@ if __name__ == "__main__":
             print(f"--- {i}/{count}: {jira_key} - {summary} ---")
             print(f"➡️  Tespit Edilen Takımlar: {', '.join(takim_isimleri) if takim_isimleri else 'Yok'}\n")
             
-        print("✅ ÖN İZLEME TAMAMLANDI. Devam etmek için 'AKTARIMI ONAYLA' butonuna basın.")
+        #print("✅ ÖN İZLEME TAMAMLANDI. Devam etmek için 'AKTARIMI ONAYLA' butonuna basın.")
 
     elif MODE == "--execute":
         
