@@ -45,7 +45,7 @@ def fetch_jira_csv(jql_query="project = GYT"):
     }
 
     try:
-        print(f"🔄 Jira Sorgusu Çalıştırılıyor: {jql_query}")
+        #print(f"🔄 Jira Sorgusu Çalıştırılıyor: {jql_query}")
         # auth=(...) yerine headers=headers kullanıyoruz
         response = requests.get(SEARCH_URL, headers=headers, params=params)
         
@@ -132,7 +132,7 @@ def fetch_jira_csv(jql_query="project = GYT"):
                 ])
 
         print(f"✅ Jira'dan sorgu ile eşleşen --{len(issues)}-- issue çekildi.")
-        print(f"🆕 '{OUTPUT_FILE}' dosyası güncellendi (Ekler Dahil).")
+        #print(f"🆕 '{OUTPUT_FILE}' dosyası güncellendi (Ekler Dahil).")
         return len(issues)
 
     except Exception as e:
