@@ -58,6 +58,17 @@ class DualSyncApp(ctk.CTk):
         self.tab_main = self.tabview.add("🔄 Aktarım Merkezi")
         self.tab_settings = self.tabview.add("⚙️ Ayarlar")
 
+        self.btn_toggle_filter = ctk.CTkButton(self.tab_main, text="🔍 Filtre Paneli (Aç/Kapat)", 
+                                        fg_color="#555555", hover_color="#333333",
+                                        command=self.toggle_filter_panel)
+        self.btn_toggle_filter.pack(fill="x", padx=10, pady=(5, 0))
+
+        # Mevcut olan create_filter_ui çağrısını buraya bağla:
+        self.create_filter_ui(self.tab_main) 
+
+        # Başlangıçta gizli kalsın istiyorsan bunu ekle:
+        self.filter_frame.pack_forget()
+
         # ========================================================
         #           SEKME 1: AKTARIM MERKEZİ & FİLTRELER
         # ========================================================
@@ -67,7 +78,7 @@ class DualSyncApp(ctk.CTk):
 
         # --- BÖLÜNMÜŞ EKRAN YAPISI ---
         self.split_frame = ctk.CTkFrame(self.tab_main, fg_color="transparent")
-        self.split_frame.pack(fill="both", expand=True)
+        self.split_frame.pack(fill="both", expand=True, pady=(10, 10))
 
         # >>> SOL PANEL (MAVİ) <<<
         self.left_frame = ctk.CTkFrame(self.split_frame, fg_color="#CEE3FA", corner_radius=15)
@@ -161,6 +172,16 @@ class DualSyncApp(ctk.CTk):
         btn.configure(command=lambda b=btn, v=value: self.remove_from_selection(b, v, storage_list))
         btn.pack(side="left", padx=2, pady=2)
 
+    def toggle_filter_panel(self):
+        if self.filter_frame.winfo_manager(): 
+            # Eğer panel ekrandaysa gizle
+            self.filter_frame.pack_forget()
+            self.btn_toggle_filter.configure(text="🔍 Filtre Panelini Göster")
+        else: 
+            # Eğer panel gizliyse, Mavi/Turuncu panellerin (split_frame) hemen üstüne yerleştir
+            self.filter_frame.pack(fill="x", padx=10, pady=(0, 10), before=self.split_frame)
+            self.btn_toggle_filter.configure(text="🔼 Filtre Panelini Gizle")
+
     def remove_from_selection(self, btn, value, storage_list):
         if value in storage_list: storage_list.remove(value)
         btn.destroy()
@@ -170,11 +191,11 @@ class DualSyncApp(ctk.CTk):
 
     # --- FİLTRELEME ARAYÜZÜ ---
     def create_filter_ui(self, parent):
-        filter_frame = ctk.CTkFrame(parent, fg_color="#E8E8E8", corner_radius=10)
-        filter_frame.pack(fill="x", padx=10, pady=(0, 10), ipadx=5, ipady=5)
+        self.filter_frame = ctk.CTkFrame(parent, fg_color="#E8E8E8", corner_radius=10)
+        #self.filter_frame.pack(fill="x", padx=10, pady=(0, 10), ipadx=5, ipady=5)
 
         # ---------------- 1. SATIR: Proje, Key, Zaman ----------------
-        row1 = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        row1 = ctk.CTkFrame(self.filter_frame, fg_color="transparent")
         row1.pack(fill="x", padx=10, pady=2)
 
         ctk.CTkLabel(row1, text="Proje:", font=self.font_ui, text_color="black").pack(side="left", padx=(0, 2))
@@ -208,7 +229,7 @@ class DualSyncApp(ctk.CTk):
             self.vars_priority[p] = var
 
         # ---------------- 3. SATIR: Atanan & Takım (AŞAĞI KAYDIRILDI) ----------------
-        row3 = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        row3 = ctk.CTkFrame(self.filter_frame, fg_color="transparent")
         row3.pack(fill="x", padx=10, pady=5)
 
         # Atanan (Assignee)
@@ -244,7 +265,7 @@ class DualSyncApp(ctk.CTk):
         self.combo_team.pack(side="right")
 
         # ---------------- 4. SATIR: Statü ve Tip Grupları ----------------
-        row4 = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        row4 = ctk.CTkFrame(self.filter_frame, fg_color="transparent")
         row4.pack(fill="x", padx=10, pady=5)
 
         # --- STATÜ GRUBU ---
@@ -288,7 +309,7 @@ class DualSyncApp(ctk.CTk):
             self.vars_type[t] = var
 
         # 5. SATIR: BUTON VE ÇIKTI
-        action_box = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        action_box = ctk.CTkFrame(self.filter_frame, fg_color="transparent")
         action_box.pack(fill="x", padx=10, pady=5)
 
         btn_gen = ctk.CTkButton(action_box, text="⬇️ JQL OLUŞTUR", width=150, fg_color="#555555", command=self.generate_jql_from_ui)
