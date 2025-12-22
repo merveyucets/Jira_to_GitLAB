@@ -103,7 +103,7 @@ class DualSyncApp(ctk.CTk):
         # --- Aksiyon Paneli ---
         self.action_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
         
-        self.btn_confirm_left = ctk.CTkButton(self.action_frame, text="✅ ONAYLA VE BAŞLAT", fg_color="#27AE60", hover_color="#1E8449", height=50, corner_radius=10, font=("Roboto", 14, "bold"), command=self.baslat_sol_thread_execute)
+        self.btn_confirm_left = ctk.CTkButton(self.action_frame, text="✅ ONAYLA VE BAŞLAT", fg_color="#27AE60", hover_color="#1E8449", height=50, corner_radius=10, font=("Roboto", 14, "bold"), command=self.basit_sol_thread_execute)
         self.btn_cancel_left = ctk.CTkButton(self.action_frame, text="❌ İPTAL", fg_color="#C0392B", hover_color="#922B21", height=50, width=100, corner_radius=10, font=("Roboto", 14, "bold"), command=self.islem_iptal_et)
         self.progress_bar = ctk.CTkProgressBar(self.action_frame, height=20, corner_radius=10, progress_color="#27AE60")
         self.progress_bar.set(0)
@@ -136,6 +136,18 @@ class DualSyncApp(ctk.CTk):
         self.create_settings_tab() 
         self.load_initial_jql()
         self.refresh_dropdown_data() # Dropdownları doldur
+        
+    def get_template_list(self):
+        """templates klasöründeki .md dosyalarını listeler."""
+        template_dir = os.path.join(self.current_dir, "templates")
+        if not os.path.exists(template_dir):
+            os.makedirs(template_dir)
+            return ["standard_template.md"]
+        
+        files = [f for f in os.listdir(template_dir) if f.endswith(".md")]
+        if not files:
+            return ["standard_template.md"]
+        return files
 
     # --- VERİ YÜKLEME ---
     def get_config_data(self):
@@ -619,12 +631,35 @@ class DualSyncApp(ctk.CTk):
     # --- AKSİYONLAR ---
     def goster_onay_iptal(self):
         self.action_frame.pack(fill="x", padx=15, pady=10)
+        
+        # Önceki gereksiz elemanları gizle
         self.progress_bar.pack_forget()
         self.progress_label.pack_forget()
         self.btn_reset.pack_forget()
+        
+        # --- YENİ KISIM: Şablon Seçimi ---
+        # Eğer daha önce eklenmişse temizle (tekrar tekrar eklenmesin)
+        for widget in self.action_frame.winfo_children():
+            if isinstance(widget, ctk.CTkFrame) and getattr(widget, "is_template_frame", False):
+                widget.destroy()
+
+        self.template_frame = ctk.CTkFrame(self.action_frame, fg_color="transparent")
+        self.template_frame.is_template_frame = True # İşaretleyici
+        self.template_frame.pack(fill="x", pady=(0, 10))
+
+        lbl = ctk.CTkLabel(self.template_frame, text="Kullanılacak Şablon:", font=("Roboto", 12, "bold"))
+        lbl.pack(side="left", padx=(0, 10))
+
+        templates = self.get_template_list()
+        self.combo_templates = ctk.CTkComboBox(self.template_frame, values=templates, width=250)
+        self.combo_templates.pack(side="left")
+        if "standard_template.md" in templates:
+            self.combo_templates.set("standard_template.md")
+        # --- YENİ KISIM BİTİŞ ---
+
         self.btn_confirm_left.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.btn_cancel_left.pack(side="right", padx=(5, 0))
-
+        
     def goster_progress_bar(self):
         self.btn_confirm_left.pack_forget()
         self.btn_cancel_left.pack_forget()
@@ -679,18 +714,31 @@ class DualSyncApp(ctk.CTk):
         )
         t.start()
 
-    def baslat_sol_thread_execute(self):
+    def basit_sol_thread_execute(self):
         jql = self.jql_entry.get() 
+        
+        # --- YENİ KISIM: Seçilen Şablonu Al ---
+        selected_template = "standard_template.md"
+        if hasattr(self, 'combo_templates'):
+            selected_template = self.combo_templates.get()
+        # --------------------------------------
+
         self.btn_left.configure(state="disabled")
         self.jql_entry.configure(state="disabled")
+        
+        # Seçim kutusunu gizle (artık işlem başladı)
+        if hasattr(self, 'template_frame'):
+            self.template_frame.pack_forget()
+
         self.goster_progress_bar()
 
+        # Argüman sırasına dikkat: Script, JQL, Mode, Template
         t = threading.Thread(
             target=self.scripti_calistir, 
-            args=("sync_to_gitlab.py", self.console_left, None, "", jql, "--execute", self.on_execute_complete)
+            args=("sync_to_gitlab.py", self.console_left, None, "", jql, "--execute", self.on_execute_complete, selected_template)
         )
         t.start()
-
+        
     def on_preview_complete(self, return_code, output_text):
         if return_code != 0:
             self.btn_left.configure(state="normal")
@@ -723,7 +771,7 @@ class DualSyncApp(ctk.CTk):
         t = threading.Thread(target=self.scripti_calistir, args=("sync_gitlab_status_to_jira.py", self.console_right, self.btn_right, "STATÜLERİ GÜNCELLE"))
         t.start()
 
-    def scripti_calistir(self, script_name, target_console, target_btn, btn_reset_text, arguman=None, mode_flag=None, callback=None):
+    def scripti_calistir(self, script_name, target_console, target_btn, btn_reset_text, arguman=None, mode_flag=None, callback=None, extra_arg=None):
         full_output = ""
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -736,6 +784,8 @@ class DualSyncApp(ctk.CTk):
             cmd = [python_exe, "-u", script_path]
             if arguman: cmd.append(arguman)
             if mode_flag: cmd.append(mode_flag)
+            
+            if extra_arg: cmd.append(extra_arg)
 
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
