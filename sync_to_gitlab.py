@@ -271,6 +271,13 @@ if __name__ == "__main__":
 
     elif MODE == "--execute":
         
+        # Eğer argüman olarak şablon adı geldiyse onu al, yoksa varsayılanı kullan
+        SELECTED_TEMPLATE = "standard_template.md"
+        if len(sys.argv) > 3:
+            SELECTED_TEMPLATE = sys.argv[3]
+            print(f"🎨 Seçilen Şablon Kullanılıyor: {SELECTED_TEMPLATE}")
+        # --- YENİ EKLENEN KISIM BİTİŞİ ---
+
         if not os.path.exists(TO_ADD_FILE):
              print("❌ HATA: Önce sorgulama yapmalısınız (jira_to_add.csv yok).")
              sys.exit(1)
@@ -310,7 +317,7 @@ if __name__ == "__main__":
             }
 
             # Master Template
-            full_desc = load_template("standard_template.md", template_context)
+            full_desc = load_template(SELECTED_TEMPLATE, template_context)
 
             # Etiketler ve Tarihler
             labels = [l for l in [jira_key, row.get("Priority")] if l]
